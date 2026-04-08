@@ -1,14 +1,31 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Settings, GameState, TrackingTarget, GameMode } from '@/types/game';
+import { Settings, GameState, GameMode } from '@/types/game';
 import Crosshair from './Crosshair';
+import FPSCounter from './FPSCounter';
 import GameUI from './GameUI';
 import Overlay from './Overlay';
 import SettingsModal from './SettingsModal';
 
 const M_YAW = 0.022;
 const CS_FOV_HORZ = 106.26;
+
+// Target radius constants (matches CSS: flick=6, tracking=14)
+const FLICK_RADIUS = 6;
+const TRACKING_RADIUS = 14;
+const WALL_SIZE = 600;
+const WALL_HALF = WALL_SIZE / 2;
+
+interface TargetData {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  isTracking: boolean;
+  isHit: boolean;
+  pulsePhase: number;
+}
 
 const DEFAULT_SETTINGS: Settings = {
   sensitivity: 1.0,
@@ -50,22 +67,36 @@ export default function AimTrainer() {
   const [isRestarting, setIsRestarting] = useState(false);
 
   const worldRef = useRef<HTMLDivElement>(null);
-  const wallRef = useRef<HTMLDivElement>(null);
-  const crosshairRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Hot-path values in refs (no re-renders on mutation)
+  const posRef = useRef({ x: 0, y: 0 });
+  const isFiringRef = useRef(false);
+  const isLockedRef = useRef(false);
+  const activeTargetsRef = useRef<TargetData[]>([]);
+  const sensitivityRef = useRef(1.0);
+  const pixelsPerDegreeRef = useRef(0);
+  const modeRef = useRef<GameMode>('flick');
+
   const animationFrameRef = useRef<number>(null);
   const isInitialMount = useRef(true);
   const lastUnlockTime = useRef<number>(0);
   const lockRequestPending = useRef(false);
 
-  // Calculate pixels per degree
+  // Keep refs in sync with state
+  sensitivityRef.current = sensitivity;
+  pixelsPerDegreeRef.current = pixelsPerDegree;
+  modeRef.current = settings.mode;
+
   const updatePixelsPerDegree = useCallback(() => {
     setPixelsPerDegree(window.innerWidth / CS_FOV_HORZ);
   }, []);
 
   useEffect(() => {
     updatePixelsPerDegree();
-    window.addEventListener('resize', updatePixelsPerDegree);
-    return () => window.removeEventListener('resize', updatePixelsPerDegree);
+    const handler = () => updatePixelsPerDegree();
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
   }, [updatePixelsPerDegree]);
 
   // Load settings from localStorage
@@ -100,41 +131,138 @@ export default function AimTrainer() {
     document.documentElement.style.setProperty('--ch-dot-opacity', settings.dot ? '1' : '0');
   }, [settings]);
 
-  // Game tick for tracking mode
+  // --- Canvas Rendering ---
+  const renderTargets = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const w = canvas.width;
+    const h = canvas.height;
+    const time = performance.now() / 1000;
+
+    // Clear canvas
+    ctx.clearRect(0, 0, w, h);
+
+    for (const t of activeTargetsRef.current) {
+      const screenX = t.x;
+      const screenY = t.y;
+      const radius = t.isTracking ? TRACKING_RADIUS : FLICK_RADIUS;
+      const pulseScale = t.isTracking ? 1 : 1 + 0.05 * Math.sin(time * Math.PI);
+      const r = radius * pulseScale;
+      const isHit = t.isHit;
+
+      // Pulse ring
+      const ringScale = t.isTracking
+        ? 0.9 + 0.6 * Math.sin(time * 1.5 - 0.5)
+        : 0.8 + 0.4 * Math.sin(time * 0.5 - 0.5);
+      const ringOpacity = t.isTracking
+        ? Math.max(0, 0.8 - (time * 1.5 % 1) * 0.8)
+        : Math.max(0, 0.6 - Math.abs(Math.sin(time * 0.5)) * 0.6);
+
+      // Outer glow
+      const glowColor = isHit ? 'rgba(0, 255, 100, 0.4)' : t.isTracking ? 'rgba(0, 210, 255, 0.3)' : 'rgba(255, 62, 62, 0.3)';
+      const glowRadius = (r + 12) * (isHit ? 2.5 : 1);
+      const gradient = ctx.createRadialGradient(screenX, screenY, r, screenX, screenY, glowRadius);
+      gradient.addColorStop(0, glowColor);
+      gradient.addColorStop(1, 'transparent');
+      ctx.beginPath();
+      ctx.arc(screenX, screenY, glowRadius, 0, Math.PI * 2);
+      ctx.fillStyle = gradient;
+      ctx.fill();
+
+      // Main circle with radial gradient
+      const mainGradient = ctx.createRadialGradient(screenX, screenY, 0, screenX, screenY, r);
+      if (isHit) {
+        mainGradient.addColorStop(0, '#ffffff');
+        mainGradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.8)');
+        mainGradient.addColorStop(1, 'rgba(0, 255, 100, 0.6)');
+      } else if (t.isTracking) {
+        mainGradient.addColorStop(0, '#00d2ff');
+        mainGradient.addColorStop(0.7, 'rgba(0, 210, 255, 0.6)');
+        mainGradient.addColorStop(1, 'transparent');
+      } else {
+        mainGradient.addColorStop(0, '#ff3e3e');
+        mainGradient.addColorStop(0.7, 'rgba(255, 62, 62, 0.6)');
+        mainGradient.addColorStop(1, 'transparent');
+      }
+
+      ctx.beginPath();
+      ctx.arc(screenX, screenY, r * (isHit ? 1.15 : 1), 0, Math.PI * 2);
+      ctx.fillStyle = mainGradient;
+      ctx.fill();
+
+      // Center highlight
+      ctx.beginPath();
+      ctx.arc(screenX - r * 0.2, screenY - r * 0.2, r * 0.3, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.fill();
+
+      // Pulsing ring
+      const ringColor = isHit ? 'rgba(0, 255, 100, 0.6)' : t.isTracking ? 'rgba(0, 210, 255, 0.6)' : 'rgba(255, 62, 62, 0.6)';
+      ctx.beginPath();
+      ctx.arc(screenX, screenY, r * ringScale, 0, Math.PI * 2);
+      ctx.strokeStyle = ringColor;
+      ctx.lineWidth = t.isTracking ? 2 : 1.5;
+      ctx.globalAlpha = ringOpacity;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // Border ring
+      ctx.beginPath();
+      ctx.arc(screenX, screenY, r + 4, 0, Math.PI * 2);
+      ctx.strokeStyle = isHit ? 'rgba(0, 255, 100, 0.4)' : t.isTracking ? 'rgba(0, 210, 255, 0.3)' : 'rgba(255, 62, 62, 0.3)';
+      ctx.lineWidth = t.isTracking ? 2 : 1.5;
+      ctx.globalAlpha = 0.3;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }, []);
+
+  // Game tick for tracking mode — runs on refs, only updates state for score
   const gameTick = useCallback(() => {
-    if (!gameState.isLocked || settings.mode !== 'tracking') return;
+    if (!isLockedRef.current || modeRef.current !== 'tracking') return;
 
-    const centerX = window.innerWidth / 2;
-    const centerY = window.innerHeight / 2;
+    const targets = activeTargetsRef.current;
+    const isFiring = isFiringRef.current;
+    // Crosshair position in canvas space
+    const crosshairCanvasX = WALL_HALF - posRef.current.x;
+    const crosshairCanvasY = WALL_HALF - posRef.current.y;
+    let scored = false;
 
-    gameState.activeTargets.forEach((t) => {
+    for (const t of targets) {
       t.x += t.vx;
       t.y += t.vy;
 
-      if (t.x <= 12 || t.x >= 588) t.vx *= -1;
-      if (t.y <= 12 || t.y >= 588) t.vy *= -1;
+      if (t.x <= TRACKING_RADIUS || t.x >= WALL_SIZE - TRACKING_RADIUS) t.vx *= -1;
+      if (t.y <= TRACKING_RADIUS || t.y >= WALL_SIZE - TRACKING_RADIUS) t.vy *= -1;
 
-      t.el.style.left = `${t.x}px`;
-      t.el.style.top = `${t.y}px`;
+      t.x = Math.max(TRACKING_RADIUS, Math.min(WALL_SIZE - TRACKING_RADIUS, t.x));
+      t.y = Math.max(TRACKING_RADIUS, Math.min(WALL_SIZE - TRACKING_RADIUS, t.y));
 
-      const rect = t.el.getBoundingClientRect();
+      // Pure math hit detection (no DOM)
+      const dx = crosshairCanvasX - t.x;
+      const dy = crosshairCanvasY - t.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const wasHit = t.isHit;
 
-      if (
-        gameState.isFiring &&
-        centerX >= rect.left &&
-        centerX <= rect.right &&
-        centerY >= rect.top &&
-        centerY <= rect.bottom
-      ) {
-        setGameState((prev) => ({ ...prev, score: prev.score + 1 }));
-        t.el.classList.add('hit');
+      if (isFiring && dist < TRACKING_RADIUS) {
+        t.isHit = true;
+        if (!wasHit) scored = true;
       } else {
-        t.el.classList.remove('hit');
+        t.isHit = false;
       }
-    });
+    }
+
+    renderTargets();
+
+    if (scored) {
+      setGameState((prev) => ({ ...prev, score: prev.score + 1 }));
+    }
 
     animationFrameRef.current = requestAnimationFrame(gameTick);
-  }, [gameState.isLocked, gameState.isFiring, gameState.activeTargets, settings.mode]);
+  }, [renderTargets]);
 
   useEffect(() => {
     if (gameState.isLocked && settings.mode === 'tracking') {
@@ -147,62 +275,40 @@ export default function AimTrainer() {
     };
   }, [gameState.isLocked, settings.mode, gameTick]);
 
-  // Create flick target
+  // --- Target Creation (Canvas) ---
   const createTargetFlick = useCallback(() => {
-    if (!wallRef.current) return;
+    const x = Math.random() * (WALL_SIZE - FLICK_RADIUS * 2 - 40) + FLICK_RADIUS + 20;
+    const y = Math.random() * (WALL_SIZE - FLICK_RADIUS * 2 - 40) + FLICK_RADIUS + 20;
+    activeTargetsRef.current.push({
+      x, y, vx: 0, vy: 0, isTracking: false, isHit: false, pulsePhase: Math.random() * Math.PI * 2,
+    });
+    renderTargets();
+  }, [renderTargets]);
 
-    const t = document.createElement('div');
-    t.className = 'target';
-    const x = Math.random() * 560 + 20;
-    const y = Math.random() * 560 + 20;
-    t.style.left = `${x}px`;
-    t.style.top = `${y}px`;
-    wallRef.current.appendChild(t);
-  }, []);
-
-  // Create tracking target
   const createTargetTracking = useCallback(() => {
-    console.log('[TARGET] createTargetTracking called');
-    if (!wallRef.current) return;
-    
-    // Safety check: don't create if tracking targets already exist
-    const existingTracking = wallRef.current.querySelectorAll('.target.tracking');
-    if (existingTracking.length > 0) {
-      console.warn('[TARGET] Tracking target already exists, skipping creation');
-      return;
-    }
-
-    console.log('[TARGET] Creating new tracking target');
-    const t = document.createElement('div');
-    t.className = 'target tracking';
-
-    const x = Math.random() * 500 + 50;
-    const y = Math.random() * 500 + 50;
+    const x = Math.random() * (WALL_SIZE - TRACKING_RADIUS * 4) + TRACKING_RADIUS * 2;
+    const y = Math.random() * (WALL_SIZE - TRACKING_RADIUS * 4) + TRACKING_RADIUS * 2;
 
     let vx = (Math.random() - 0.5) * 6;
     let vy = (Math.random() - 0.5) * 6;
     if (Math.abs(vx) < 1) vx = 2;
 
-    t.style.left = `${x}px`;
-    t.style.top = `${y}px`;
-    wallRef.current.appendChild(t);
+    activeTargetsRef.current = [{
+      x, y, vx, vy, isTracking: true, isHit: false, pulsePhase: 0,
+    }];
+    renderTargets();
+  }, [renderTargets]);
 
-    setGameState((prev) => ({
-      ...prev,
-      activeTargets: [...prev.activeTargets, { el: t, x, y, vx, vy }],
-    }));
-  }, []);
-
-  // Reset game
+  // --- Reset Game ---
   const resetGame = useCallback(() => {
-    console.log('[RESET] resetGame called, mode:', settings.mode);
-    
-    // Clear wall and active targets first
-    if (wallRef.current) {
-      wallRef.current.innerHTML = '';
+    activeTargetsRef.current = [];
+    isFiringRef.current = false;
+    posRef.current = { x: 0, y: 0 };
+
+    if (worldRef.current) {
+      worldRef.current.style.transform = 'translate3d(-50%, -50%, 0)';
     }
 
-    // Reset state synchronously
     setGameState((prev) => ({
       ...prev,
       score: 0,
@@ -214,22 +320,16 @@ export default function AimTrainer() {
     setShowAIBtn(false);
     setAiFeedback('');
 
-    // Initialize targets with a slight delay to ensure state is cleared
-    setTimeout(() => {
-      if (settings.mode === 'flick') {
-        console.log('[RESET] Spawning 5 flick targets');
-        for (let i = 0; i < 5; i++) {
-          setTimeout(() => createTargetFlick(), i * 10);
-        }
-      } else {
-        console.log('[RESET] Spawning 1 tracking target');
-        // Only spawn one tracking target
-        createTargetTracking();
+    if (settings.mode === 'flick') {
+      for (let i = 0; i < 5; i++) {
+        setTimeout(() => createTargetFlick(), i * 10);
       }
-    }, 50);
+    } else {
+      createTargetTracking();
+    }
   }, [settings.mode, createTargetFlick, createTargetTracking]);
 
-  // Start timer
+  // --- Timer ---
   const startTimer = useCallback(() => {
     if (gameState.timeLeft > 0 && !gameState.gameInterval) {
       const interval = setInterval(() => {
@@ -248,7 +348,6 @@ export default function AimTrainer() {
     }
   }, [gameState.timeLeft, gameState.gameInterval]);
 
-  // Stop timer
   const stopTimer = useCallback(() => {
     if (gameState.gameInterval) {
       clearInterval(gameState.gameInterval);
@@ -256,7 +355,7 @@ export default function AimTrainer() {
     }
   }, [gameState.gameInterval]);
 
-  // Update overlay text
+  // --- Overlay Text ---
   const updateOverlayText = useCallback(() => {
     if (gameState.timeLeft <= 0) {
       setOverlayTitle('CHALLENGE COMPLETE');
@@ -285,66 +384,62 @@ export default function AimTrainer() {
     }
   }, [gameState.timeLeft, gameState.score, settings.color, settings.mode]);
 
-  // Get accuracy
+  // --- Accuracy ---
   const getAccuracy = useCallback(() => {
     if (gameState.totalShots === 0) return '100';
     return ((gameState.score / gameState.totalShots) * 100).toFixed(1);
   }, [gameState.score, gameState.totalShots]);
 
-  // Check hit for flick mode
+  // --- Hit Detection for Flick Mode (pure math) ---
   const checkHitFlick = useCallback(() => {
-    if (!wallRef.current) return;
+    // Crosshair position in canvas space = center - world offset
+    // The world moves, so the crosshair points to a shifted position on the canvas
+    const crosshairCanvasX = WALL_HALF - posRef.current.x;
+    const crosshairCanvasY = WALL_HALF - posRef.current.y;
+    const targets = activeTargetsRef.current;
 
-    const targets = wallRef.current.querySelectorAll('.target:not(.tracking)');
-    const centerX = window.innerWidth / 2;
-    const centerY = window.innerHeight / 2;
+    for (let i = 0; i < targets.length; i++) {
+      const t = targets[i];
+      if (t.isTracking) continue;
 
-    targets.forEach((t) => {
-      const rect = t.getBoundingClientRect();
-      if (
-        centerX >= rect.left &&
-        centerX <= rect.right &&
-        centerY >= rect.top &&
-        centerY <= rect.bottom
-      ) {
+      const dx = crosshairCanvasX - t.x;
+      const dy = crosshairCanvasY - t.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < FLICK_RADIUS) {
         setGameState((prev) => ({ ...prev, score: prev.score + 1 }));
-        t.remove();
+        targets.splice(i, 1);
         setFlashOpacity(0.15);
         setTimeout(() => setFlashOpacity(0), 50);
         createTargetFlick();
+        return;
       }
-    });
+    }
   }, [createTargetFlick]);
 
-  // Handle mouse move
-  const handleMouseMove = useCallback(
-    (e: MouseEvent) => {
-      if (!gameState.isLocked || !worldRef.current) return;
+  // --- Mouse Movement (direct DOM, no state) ---
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isLockedRef.current || !worldRef.current) return;
 
-      const degX = e.movementX * sensitivity * M_YAW;
-      const degY = e.movementY * sensitivity * M_YAW;
-      const pixelMoveX = degX * pixelsPerDegree;
-      const pixelMoveY = degY * pixelsPerDegree;
+    const degX = e.movementX * sensitivityRef.current * M_YAW;
+    const degY = e.movementY * sensitivityRef.current * M_YAW;
+    const pixelMoveX = degX * pixelsPerDegreeRef.current;
+    const pixelMoveY = degY * pixelsPerDegreeRef.current;
 
-      setGameState((prev) => {
-        const newPosX = Math.max(-2500, Math.min(2500, prev.posX - pixelMoveX));
-        const newPosY = Math.max(-2500, Math.min(2500, prev.posY - pixelMoveY));
+    const newPosX = Math.max(-2500, Math.min(2500, posRef.current.x - pixelMoveX));
+    const newPosY = Math.max(-2500, Math.min(2500, posRef.current.y - pixelMoveY));
+    posRef.current = { x: newPosX, y: newPosY };
 
-        if (worldRef.current) {
-          worldRef.current.style.transform = `translate(calc(-50% + ${newPosX}px), calc(-50% + ${newPosY}px))`;
-        }
+    // Direct DOM update — no state, no re-render
+    // translate3d forces GPU compositing, eliminating layout pipeline
+    worldRef.current.style.transform = `translate3d(calc(-50% + ${newPosX}px), calc(-50% + ${newPosY}px), 0)`;
+  }, []);
 
-        return { ...prev, posX: newPosX, posY: newPosY };
-      });
-    },
-    [gameState.isLocked, sensitivity, pixelsPerDegree]
-  );
-
-  // Handle mouse down
+  // --- Mouse Down ---
   const handleMouseDown = useCallback(() => {
-    if (!gameState.isLocked) return;
+    if (!isLockedRef.current) return;
 
-    setGameState((prev) => ({ ...prev, isFiring: true }));
+    isFiringRef.current = true;
 
     if (crosshairRef.current) {
       crosshairRef.current.classList.remove('recoil');
@@ -352,30 +447,32 @@ export default function AimTrainer() {
       crosshairRef.current.classList.add('recoil');
     }
 
-    if (gameState.timeLeft > 0 && settings.mode === 'flick') {
+    if (gameState.timeLeft > 0 && modeRef.current === 'flick') {
       setGameState((prev) => ({ ...prev, totalShots: prev.totalShots + 1 }));
       checkHitFlick();
     }
-  }, [gameState.isLocked, gameState.timeLeft, settings.mode, checkHitFlick]);
+  }, [gameState.timeLeft, checkHitFlick]);
 
-  // Handle mouse up
+  // --- Mouse Up ---
   const handleMouseUp = useCallback(() => {
-    setGameState((prev) => ({ ...prev, isFiring: false }));
+    isFiringRef.current = false;
   }, []);
 
-  // Handle pointer lock change
+  const crosshairRef = useRef<HTMLDivElement>(null);
+
+  // --- Pointer Lock ---
   useEffect(() => {
     const handlePointerLockChange = () => {
       if (document.pointerLockElement === document.body) {
-        console.log('[POINTER LOCK] Locked successfully');
+        isLockedRef.current = true;
         lockRequestPending.current = false;
         setOverlayVisible(false);
         setGameState((prev) => ({ ...prev, isLocked: true }));
         startTimer();
       } else {
-        console.log('[POINTER LOCK] Unlocked');
+        isLockedRef.current = false;
         lockRequestPending.current = false;
-        lastUnlockTime.current = Date.now(); // Track when we unlocked
+        lastUnlockTime.current = Date.now();
         setOverlayVisible(true);
         setGameState((prev) => ({ ...prev, isLocked: false }));
         stopTimer();
@@ -384,20 +481,19 @@ export default function AimTrainer() {
     };
 
     const handlePointerLockError = () => {
-      console.warn('[POINTER LOCK] Error - user may have exited lock too quickly');
       lockRequestPending.current = false;
     };
 
     document.addEventListener('pointerlockchange', handlePointerLockChange);
     document.addEventListener('pointerlockerror', handlePointerLockError);
-    
+
     return () => {
       document.removeEventListener('pointerlockchange', handlePointerLockChange);
       document.removeEventListener('pointerlockerror', handlePointerLockError);
     };
   }, [startTimer, stopTimer, updateOverlayText]);
 
-  // Mouse events
+  // --- Mouse Events ---
   useEffect(() => {
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mousedown', handleMouseDown);
@@ -410,124 +506,80 @@ export default function AimTrainer() {
     };
   }, [handleMouseMove, handleMouseDown, handleMouseUp]);
 
-  // Initialize game after settings are loaded
+  // --- Initialize Game ---
   useEffect(() => {
-    console.log('[EFFECT] Init effect, settingsLoaded:', settingsLoaded, 'isInitialMount:', isInitialMount.current);
     if (settingsLoaded && isInitialMount.current) {
-      console.log('[EFFECT] Running initial resetGame');
       resetGame();
       isInitialMount.current = false;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settingsLoaded]);
+  }, [settingsLoaded, resetGame]);
 
-  // Reset game when mode changes (after initial mount)
+  // --- Mode Change ---
   useEffect(() => {
-    console.log('[EFFECT] Mode change effect, mode:', settings.mode, 'isInitialMount:', isInitialMount.current);
     if (!isInitialMount.current && settingsLoaded) {
-      console.log('[EFFECT] Running mode change resetGame');
       resetGame();
-      
-      // Reset overlay to initial state
       setOverlayTitle('train your skills here');
       setOverlayDesc('');
       setStartBtnText('Lock Mouse & Play');
       setShowRestartBtn(false);
       setShowAIBtn(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.mode, settingsLoaded]);
+  }, [settings.mode, settingsLoaded, resetGame]);
 
-  // Handle start button with proper cooldown
+  // --- Start Button ---
   const handleStart = () => {
-    // Don't try to lock if already locked or if a request is pending
-    if (document.pointerLockElement === document.body) {
-      console.log('[START] Already locked, skipping');
-      return;
-    }
-    
-    if (lockRequestPending.current) {
-      console.log('[START] Lock request already pending, skipping');
-      return;
-    }
-    
+    if (document.pointerLockElement === document.body) return;
+    if (lockRequestPending.current) return;
+
     if (gameState.timeLeft <= 0) {
       resetGame();
     }
-    
-    // Calculate time since last unlock
+
     const timeSinceUnlock = Date.now() - lastUnlockTime.current;
-    const minCooldown = 300; // Minimum 300ms cooldown after unlock
-    
+    const minCooldown = 300;
+
     const requestLock = () => {
       if (document.pointerLockElement !== document.body && !lockRequestPending.current) {
-        console.log('[START] Requesting pointer lock');
         lockRequestPending.current = true;
-        
         document.body.requestPointerLock().catch((error) => {
-          console.warn('[POINTER LOCK] Request failed:', error.message);
           lockRequestPending.current = false;
-          
-          // If failed due to timing, retry after cooldown
           if (error.message.includes('exited the lock')) {
-            console.log('[START] Retrying after extended cooldown');
             setTimeout(() => {
               if (document.pointerLockElement !== document.body && !lockRequestPending.current) {
                 lockRequestPending.current = true;
-                document.body.requestPointerLock().catch((retryError) => {
-                  console.error('[POINTER LOCK] Retry failed:', retryError.message);
-                  lockRequestPending.current = false;
-                });
+                document.body.requestPointerLock().catch(() => {});
               }
             }, 500);
           }
         });
       }
     };
-    
-    // If recently unlocked, wait for cooldown
+
     if (timeSinceUnlock < minCooldown) {
-      const remainingCooldown = minCooldown - timeSinceUnlock;
-      console.log(`[START] Waiting ${remainingCooldown}ms for cooldown`);
-      setTimeout(requestLock, remainingCooldown);
+      setTimeout(requestLock, minCooldown - timeSinceUnlock);
     } else {
-      // Cooldown passed, request immediately (with small delay for UI)
       setTimeout(requestLock, 50);
     }
   };
 
-  // Handle restart button
+  // --- Restart ---
   const handleRestart = useCallback((e?: React.MouseEvent) => {
-    console.log('[RESTART] Button clicked, isRestarting:', isRestarting);
-    
-    // Prevent double-clicks
-    if (isRestarting) {
-      console.log('[RESTART] Already restarting, ignoring');
-      return;
-    }
-    
-    // Prevent any event bubbling or default actions
+    if (isRestarting) return;
     if (e) {
       e.preventDefault();
       e.stopPropagation();
     }
-    
+
     setIsRestarting(true);
-    
-    // First, ensure we're unlocked and overlay is visible
+
     if (document.pointerLockElement === document.body) {
-      console.log('[RESTART] Exiting pointer lock first');
       document.exitPointerLock();
     }
-    
-    // Force overlay to be visible immediately
+
     setOverlayVisible(true);
-    
-    // Reset game state after a small delay to ensure DOM is ready
+
     setTimeout(() => {
       resetGame();
-      
-      // Update overlay text after reset completes
       setTimeout(() => {
         updateOverlayText();
         setIsRestarting(false);
@@ -535,7 +587,7 @@ export default function AimTrainer() {
     }, 50);
   }, [isRestarting, resetGame, updateOverlayText]);
 
-  // Handle AI analysis
+  // --- AI Analysis ---
   const handleAIAnalysis = async () => {
     setAiLoading(true);
     setAiFeedback('<em>Analyzing your performance data...</em>');
@@ -549,7 +601,7 @@ export default function AimTrainer() {
       - Score: ${gameState.score} ${settings.mode === 'tracking' ? '(Frames Tracked)' : '(Targets Hit)'}
       - Accuracy: ${settings.mode === 'tracking' ? 'N/A (Tracking)' : accuracy + '%'}
       - Sensitivity: ${sensitivity} (CS2)
-      
+
       Act as a professional Esports Aim Coach.
       1. Assessment: 1 sentence on my performance.
       2. Advice: 1 specific, actionable drill or tip for ${modeName}.
@@ -557,7 +609,7 @@ export default function AimTrainer() {
     `;
 
     try {
-      const apiKey = ''; // Add your API key here
+      const apiKey = '';
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
         {
@@ -583,29 +635,21 @@ export default function AimTrainer() {
     }
   };
 
-  // Handle setting change
+  // --- Settings Handlers ---
   const handleSettingChange = (key: keyof Settings, value: any) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
   };
 
-  // Handle mode selection
   const handleModeSelect = (mode: GameMode) => {
     setSettings((prev) => ({ ...prev, mode }));
   };
 
-  // Handle back to menu
+  // --- Back to Menu ---
   const handleBackToMenu = useCallback(() => {
-    console.log('[MENU] Back to menu clicked');
-    
-    // Exit pointer lock if active
     if (document.pointerLockElement === document.body) {
       document.exitPointerLock();
     }
-    
-    // Reset to initial state
     resetGame();
-    
-    // Update overlay to show initial screen
     setOverlayTitle('train your skills here');
     setOverlayDesc('');
     setStartBtnText('Lock Mouse & Play');
@@ -655,6 +699,8 @@ export default function AimTrainer() {
         gameMode={settings.mode}
       />
 
+      <FPSCounter />
+
       <div id="hit-flash" style={{ opacity: flashOpacity }}></div>
 
       <Crosshair className={gameState.isFiring ? 'recoil' : ''} />
@@ -667,7 +713,43 @@ export default function AimTrainer() {
           <line x1="0" y1="6000" x2="2700" y2="3300" />
         </svg>
 
-        <div id="wall" ref={wallRef}></div>
+        {/* Canvas replaces the old wall div + DOM targets */}
+        <canvas
+          id="wall"
+          ref={canvasRef}
+          width={WALL_SIZE}
+          height={WALL_SIZE}
+          style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            border: '3px solid rgba(99, 102, 241, 0.3)',
+            boxShadow: '0 0 100px rgba(0, 0, 0, 0.9), 0 0 50px rgba(99, 102, 241, 0.2), inset 0 0 100px rgba(0, 0, 0, 0.5)',
+            background: `
+              linear-gradient(rgba(99, 102, 241, 0.08) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(99, 102, 241, 0.08) 1px, transparent 1px),
+              #1e1e1e
+            `,
+            backgroundSize: '50px 50px',
+            contain: 'strict',
+            zIndex: 10,
+          }}
+        />
+
+        {/* Corner gradient overlay (was ::before on wall) */}
+        <div style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          width: WALL_SIZE + 6,
+          height: WALL_SIZE + 6,
+          background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, transparent 50%, rgba(168, 85, 247, 0.1) 100%)',
+          pointerEvents: 'none',
+          zIndex: 11,
+          borderRadius: 2,
+        }} />
       </div>
     </>
   );

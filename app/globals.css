@@ -803,14 +803,9 @@ select:focus {
   height: 6000px;
   transform-origin: center;
   will-change: transform;
-  
-  background: conic-gradient(
-    from 45deg at 50% 50%, 
-    #111 0deg 90deg,
-    #080808 90deg 180deg,
-    #111 180deg 270deg,
-    #0c0c0c 270deg 360deg
-  );
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  background: #111;
 }
 
 /* SVG Overlay for Perspective Lines */
@@ -835,6 +830,7 @@ line {
   transform: translate(-50%, -50%);
   width: 600px;
   height: 600px;
+  contain: strict;
   background: var(--wall-color);
   background-image: 
     linear-gradient(rgba(99, 102, 241, 0.08) 1px, transparent 1px),
@@ -970,6 +966,7 @@ line {
   transform: translate(-50%, -50%);
   pointer-events: none;
   z-index: 50;
+  will-change: transform;
   filter: drop-shadow(0 0 4px var(--ch-color)) drop-shadow(0 0 2px rgba(0, 0, 0, 0.8));
 }
 

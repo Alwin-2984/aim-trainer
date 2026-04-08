@@ -11,11 +11,13 @@ export interface Settings {
 }
 
 export interface TrackingTarget {
-  el: HTMLDivElement;
   x: number;
   y: number;
   vx: number;
   vy: number;
+  isTracking: boolean;
+  isHit: boolean;
+  pulsePhase: number;
 }
 
 export interface GameState {

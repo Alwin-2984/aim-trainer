@@ -1,4 +1,5 @@
 import { GameMode } from '@/types/game';
+import Link from 'next/link';
 
 interface ModeSelectorProps {
   selectedMode: GameMode;
@@ -22,7 +23,7 @@ export default function ModeSelector({ selectedMode, onModeSelect }: ModeSelecto
             <span>60s</span>
           </div>
         </button>
-        
+
         <button
           className={`mode-card ${selectedMode === 'tracking' ? 'active' : ''}`}
           onClick={() => onModeSelect('tracking')}
@@ -35,6 +36,16 @@ export default function ModeSelector({ selectedMode, onModeSelect }: ModeSelecto
             <span>60s</span>
           </div>
         </button>
+
+        <Link href="/reaction" className="mode-card">
+          <div className="mode-icon">⚡</div>
+          <h4>Reaction Time</h4>
+          <p>Test your reaction speed — Human Benchmark style</p>
+          <div className="mode-stats">
+            <span>Custom Trials</span>
+            <span>Summary</span>
+          </div>
+        </Link>
       </div>
     </div>
   );
