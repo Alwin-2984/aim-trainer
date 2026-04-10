@@ -1,10 +1,12 @@
+import { forwardRef } from 'react';
+
 interface CrosshairProps {
   className?: string;
 }
 
-export default function Crosshair({ className = '' }: CrosshairProps) {
+const Crosshair = forwardRef<HTMLDivElement, CrosshairProps>(function Crosshair({ className = '' }, ref) {
   return (
-    <div id="crosshair" className={className}>
+    <div id="crosshair" ref={ref} className={className}>
       <div className="ch-line ch-v ch-top"></div>
       <div className="ch-line ch-v ch-bottom"></div>
       <div className="ch-line ch-h ch-left"></div>
@@ -12,4 +14,6 @@ export default function Crosshair({ className = '' }: CrosshairProps) {
       <div className="ch-dot"></div>
     </div>
   );
-}
+});
+
+export default Crosshair;

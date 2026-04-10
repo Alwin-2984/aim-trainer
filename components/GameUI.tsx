@@ -1,13 +1,12 @@
-import { GameMode } from '@/types/game';
-
 interface GameUIProps {
   timeLeft: number;
   score: number;
   accuracy: string;
-  gameMode: GameMode;
+  scoreLabel: string;
+  showAccuracy: boolean;
 }
 
-export default function GameUI({ timeLeft, score, accuracy, gameMode }: GameUIProps) {
+export default function GameUI({ timeLeft, score, accuracy, scoreLabel, showAccuracy }: GameUIProps) {
   return (
     <div id="ui">
       <div className="stat-group">
@@ -15,12 +14,10 @@ export default function GameUI({ timeLeft, score, accuracy, gameMode }: GameUIPr
         <div className="stat-value" id="timer">{timeLeft}</div>
       </div>
       <div className="stat-group">
-        <div className="stat-label" id="score-label">
-          {gameMode === 'tracking' ? 'Tracking Score' : 'Targets Cleared'}
-        </div>
+        <div className="stat-label" id="score-label">{scoreLabel}</div>
         <div className="stat-value" id="score">{score}</div>
       </div>
-      {gameMode === 'flick' && (
+      {showAccuracy && (
         <div className="stat-group" id="acc-group">
           <div className="stat-label">Accuracy</div>
           <div className="stat-value" id="accuracy">{accuracy}</div>
