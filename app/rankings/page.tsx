@@ -19,6 +19,7 @@ const MODES = [
   { id: 'flick', label: 'Flick' },
   { id: 'tracking', label: 'Tracking' },
   { id: 'micro-adjustment', label: 'Micro Adj' },
+  { id: 'pasu-track', label: 'Pasu Track' },
 ];
 
 const DIFFICULTIES: { value: Difficulty; label: string }[] = [
@@ -67,7 +68,7 @@ export default function RankingsPage() {
   const isFlick = mode === 'flick';
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white p-6">
+    <div className="h-screen overflow-y-auto bg-[#0a0a0a] text-white p-6">
       <div className="max-w-3xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">

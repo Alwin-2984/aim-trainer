@@ -13,6 +13,7 @@ import { TargetSystem } from './systems/TargetSystem';
 import { ScoreSystem } from './systems/ScoreSystem';
 import { TimerSystem } from './systems/TimerSystem';
 import { RenderSystem } from './systems/RenderSystem';
+import { playHitSound, playMissSound, playEliminateSound } from './SoundManager';
 
 export class GameEngine implements GameEngineInterface {
   readonly events: EventBus;
@@ -32,6 +33,14 @@ export class GameEngine implements GameEngineInterface {
     // Timer expired -> game over
     this.events.on('timer:expired', () => {
       this._input.releaseLock();
+    });
+
+    // Sound effects
+    this.events.on('target:hit', () => {
+      playHitSound();
+    });
+    this.events.on('target:miss', () => {
+      playMissSound();
     });
   }
 

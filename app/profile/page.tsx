@@ -48,12 +48,14 @@ const MODE_LABELS: Record<string, string> = {
   flick: 'Flick',
   tracking: 'Tracking',
   'micro-adjustment': 'Micro Adj',
+  'pasu-track': 'Pasu Track',
 };
 
 const MODE_COLORS: Record<string, string> = {
   flick: '#ff3e3e',
   tracking: '#00d2ff',
   'micro-adjustment': '#a855f7',
+  'pasu-track': '#10b981',
 };
 
 function timeAgo(dateStr: string): string {
@@ -109,7 +111,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white p-6">
+    <div className="h-screen overflow-y-auto bg-[#0a0a0a] text-white p-6">
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-10">

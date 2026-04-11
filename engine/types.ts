@@ -25,6 +25,8 @@ export interface TargetData {
   isTracking: boolean;
   isHit: boolean;
   pulsePhase: number;
+  /** 1 = full health, 0 = eliminated. Only used with eliminateAfterMs. */
+  healthPercent: number;
 }
 
 // ─── Engine State (read by React) ───
@@ -93,12 +95,18 @@ export interface InputManagerInterface {
 export interface TargetSystemConfig {
   count: number;
   radius: number;
-  movement: 'static' | 'linear_bounce';
+  movement: 'static' | 'linear_bounce' | 'reactive';
   speed: number;
   respawnOnHit: boolean;
   hitDetection: 'click' | 'hover_while_firing';
   /** Confine target movement to a square of this size (centered on canvas). Defaults to WALL_SIZE. */
   boundsSize?: number;
+  /** For 'reactive' movement: min ms between direction changes. Default 400. */
+  dirChangeMinMs?: number;
+  /** For 'reactive' movement: max ms between direction changes. Default 1200. */
+  dirChangeMaxMs?: number;
+  /** Eliminate target after tracking it for this many ms continuously. 0 = disabled. */
+  eliminateAfterMs?: number;
 }
 
 export interface ScoreSystemConfig {
