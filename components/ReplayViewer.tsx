@@ -3,6 +3,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { ReplayRecording, WALL_SIZE, WALL_HALF } from '@/engine/types';
 import { drawTargets } from '@/engine/rendering';
+import { useSettings } from '@/hooks/useSettings';
 import GameShell, { GameShellHandles } from './GameShell';
 import { Play, Pause, SkipBack, SkipForward, ChevronsLeft, ChevronsRight, ArrowLeft } from 'lucide-react';
 
@@ -14,6 +15,7 @@ interface ReplayViewerProps {
 const SPEEDS = [0.5, 1, 2];
 
 export default function ReplayViewer({ recording, onClose }: ReplayViewerProps) {
+  useSettings(); // Syncs CSS variables (--ch-color, --ch-length, etc.) so the crosshair matches the user's settings
   const shellRef = useRef<GameShellHandles>(null);
   const rafRef = useRef<number | null>(null);
   const lastTimeRef = useRef(0);
