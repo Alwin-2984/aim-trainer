@@ -5,7 +5,10 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import ModeSelector from '@/components/ModeSelector';
-import { Trophy, TrendingUp, LogOut, Crosshair, Flame, Target, Percent } from 'lucide-react';
+import SettingsModal from '@/components/SettingsModal';
+import { useSettings } from '@/hooks/useSettings';
+import { Trophy, TrendingUp, LogOut, Crosshair, Flame, Target, Percent, Settings } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 interface QuickStats {
   totalGames: number;
@@ -18,6 +21,8 @@ export default function Home() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [stats, setStats] = useState<QuickStats | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const { settings, sensitivity, setSensitivity, handleSettingChange } = useSettings();
 
   useEffect(() => {
     if (status === 'unauthenticated') router.push('/login');
@@ -63,6 +68,16 @@ export default function Home() {
         <div className="absolute inset-0 opacity-[0.02] bg-[repeating-linear-gradient(0deg,transparent,transparent_2px,rgba(255,255,255,0.1)_2px,rgba(255,255,255,0.1)_4px)]" />
       </div>
 
+      {/* ═══ Settings Modal ═══ */}
+      <SettingsModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        settings={settings}
+        onSettingChange={handleSettingChange}
+        sensitivity={sensitivity}
+        onSensitivityChange={setSensitivity}
+      />
+
       {/* ═══ Top Bar ═══ */}
       <header className="relative z-20 flex items-center justify-between px-5 lg:px-8 py-3 border-b border-white/[0.06] bg-black/50 backdrop-blur-xl shrink-0">
         {/* Brand */}
@@ -88,6 +103,13 @@ export default function Home() {
             <Trophy className="w-4 h-4 text-white/40 group-hover:text-[#ff8c00] transition-colors" />
             <span className="text-xs font-semibold text-white/50 uppercase tracking-wider hidden md:block group-hover:text-white/80 transition-colors">Rankings</span>
           </Link>
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors group cursor-pointer"
+          >
+            <Settings className="w-4 h-4 text-white/40 group-hover:text-[#ff8c00] transition-colors" />
+            <span className="text-xs font-semibold text-white/50 uppercase tracking-wider hidden md:block group-hover:text-white/80 transition-colors">Settings</span>
+          </button>
 
           <div className="w-px h-6 bg-white/10 mx-1" />
 
@@ -188,5 +210,3 @@ function StatBox({
     </div>
   );
 }
-
-import type { LucideIcon } from 'lucide-react';
