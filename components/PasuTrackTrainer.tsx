@@ -12,19 +12,26 @@ import GameUI from './GameUI';
 import Overlay from './Overlay';
 import SettingsModal from './SettingsModal';
 import DifficultySelector from './DifficultySelector';
+import ReplayViewer from './ReplayViewer';
+import { useReplayRecording } from '@/hooks/useReplayRecording';
+import { RecordingSystem } from '@/engine/systems/RecordingSystem';
+import { useSaveReplay } from '@/hooks/useSaveReplay';
 
 export default function PasuTrackTrainer() {
   const { state, actions } = useGameEngine();
   const { settings, sensitivity, settingsLoaded, setSensitivity, handleSettingChange } = useSettings();
   const { saveScore, resetSaved, fetchBest, personalBest, isNewBest } = useSaveScore();
+  const { saveReplay, resetReplaySave, saving: replaySaving, saved: replaySaved } = useSaveReplay();
 
   const [difficulty, setDifficulty] = useState<Difficulty>('medium');
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [flashOpacity, setFlashOpacity] = useState(0);
   const [aiFeedback, setAiFeedback] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
+  const [showReplay, setShowReplay] = useState(false);
 
   const shellRef = useRef<GameShellHandles>(null);
+  const { recordingRef, createRecording } = useReplayRecording();
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -47,9 +54,11 @@ export default function PasuTrackTrainer() {
   useEffect(() => {
     if (!settingsLoaded) return;
     actions.loadMode(PasuTrackModes[difficulty]);
+    const rec = createRecording('pasu-track');
+    actions.addSystem(new RecordingSystem(rec));
     fetchBest('pasu-track', difficulty);
     setAiFeedback('');
-  }, [difficulty, settingsLoaded, actions, fetchBest]);
+  }, [difficulty, settingsLoaded, actions, fetchBest, createRecording]);
 
   // Save score on game over
   useEffect(() => {
@@ -70,11 +79,15 @@ export default function PasuTrackTrainer() {
   const handleStart = useCallback(() => {
     if (state.phase === GamePhase.GAME_OVER) {
       actions.loadMode(PasuTrackModes[difficulty]);
+      const rec = createRecording('pasu-track');
+      actions.addSystem(new RecordingSystem(rec));
       setAiFeedback('');
       resetSaved();
+      resetReplaySave();
+      setShowReplay(false);
     }
     actions.start();
-  }, [state.phase, difficulty, actions, resetSaved]);
+  }, [state.phase, difficulty, actions, resetSaved, resetReplaySave, createRecording]);
 
   const handleReset = useCallback(() => {
     actions.loadMode(PasuTrackModes[difficulty]);
@@ -119,9 +132,18 @@ export default function PasuTrackTrainer() {
         onReset={handleReset}
         onAIAnalysis={handleAIAnalysis}
         onOpenSettings={() => setSettingsModalOpen(true)}
+        showReplayBtn={state.phase === GamePhase.GAME_OVER && (recordingRef.current?.frameCount ?? 0) > 0}
+        onWatchReplay={() => setShowReplay(true)}
+        onSaveReplay={() => recordingRef.current && saveReplay({ recording: recordingRef.current, mode: 'pasu-track', difficulty, score: state.score })}
+        replaySaving={replaySaving}
+        replaySaved={replaySaved}
       >
         <DifficultySelector selected={difficulty} onSelect={setDifficulty} />
       </Overlay>
+
+      {showReplay && recordingRef.current && (
+        <ReplayViewer recording={recordingRef.current} onClose={() => setShowReplay(false)} />
+      )}
 
       <SettingsModal
         isOpen={settingsModalOpen}

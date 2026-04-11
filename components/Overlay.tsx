@@ -1,5 +1,5 @@
 import { GamePhase } from '@/engine/types';
-import { SettingsIcon } from 'lucide-react';
+import { SettingsIcon, Upload, Check } from 'lucide-react';
 import Link from 'next/link';
 
 interface OverlayProps {
@@ -15,7 +15,11 @@ interface OverlayProps {
   onReset: () => void;
   onAIAnalysis: () => void;
   onOpenSettings: () => void;
-  /** Extra content rendered between description and buttons (e.g. difficulty selector) */
+  showReplayBtn?: boolean;
+  onWatchReplay?: () => void;
+  onSaveReplay?: () => void;
+  replaySaving?: boolean;
+  replaySaved?: boolean;
   children?: React.ReactNode;
 }
 
@@ -32,10 +36,16 @@ export default function Overlay({
   onReset,
   onAIAnalysis,
   onOpenSettings,
+  showReplayBtn,
+  onWatchReplay,
+  onSaveReplay,
+  replaySaving,
+  replaySaved,
   children,
 }: OverlayProps) {
   const isPaused = phase === GamePhase.PAUSED;
   const isMenu = phase === GamePhase.MENU;
+  const isGameOver = phase === GamePhase.GAME_OVER;
 
   return (
     <div
@@ -53,7 +63,6 @@ export default function Overlay({
         <h1 className="hero-title">{title}</h1>
         <p className="hero-desc" dangerouslySetInnerHTML={{ __html: description }}></p>
 
-        {/* Slot for difficulty selector or other content — only on initial/menu screen */}
         {isMenu && children}
 
         <div id="game-controls">
@@ -86,6 +95,32 @@ export default function Overlay({
             >
               {aiLoading ? 'Coach is Analyzing...' : 'Get AI Coach Tips'}
             </button>
+          )}
+
+          {/* Replay buttons — game over only */}
+          {isGameOver && showReplayBtn && onWatchReplay && (
+            <button className="btn btn-menu" onClick={onWatchReplay}>
+              Watch Replay
+            </button>
+          )}
+
+          {isGameOver && onSaveReplay && !replaySaved && (
+            <button
+              className="btn btn-menu"
+              onClick={onSaveReplay}
+              disabled={replaySaving}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            >
+              <Upload style={{ width: '14px', height: '14px' }} />
+              {replaySaving ? 'Uploading...' : 'Save Replay'}
+            </button>
+          )}
+
+          {isGameOver && replaySaved && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#00ff88', fontSize: '0.85rem', fontWeight: 600 }}>
+              <Check style={{ width: '14px', height: '14px' }} />
+              Replay Saved
+            </span>
           )}
 
           <Link href="/" className="btn btn-menu">

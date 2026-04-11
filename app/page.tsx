@@ -7,7 +7,7 @@ import Link from 'next/link';
 import ModeSelector from '@/components/ModeSelector';
 import SettingsModal from '@/components/SettingsModal';
 import { useSettings } from '@/hooks/useSettings';
-import { Trophy, TrendingUp, LogOut, Crosshair, Flame, Target, Percent, Settings } from 'lucide-react';
+import { Trophy, TrendingUp, LogOut, Crosshair, Flame, Target, Percent, Settings, Film } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 interface QuickStats {
@@ -102,6 +102,10 @@ export default function Home() {
           <Link href="/rankings" className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors group">
             <Trophy className="w-4 h-4 text-white/40 group-hover:text-[#ff8c00] transition-colors" />
             <span className="text-xs font-semibold text-white/50 uppercase tracking-wider hidden md:block group-hover:text-white/80 transition-colors">Rankings</span>
+          </Link>
+          <Link href="/replays" className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors group">
+            <Film className="w-4 h-4 text-white/40 group-hover:text-[#ff8c00] transition-colors" />
+            <span className="text-xs font-semibold text-white/50 uppercase tracking-wider hidden md:block group-hover:text-white/80 transition-colors">Replays</span>
           </Link>
           <button
             onClick={() => setSettingsOpen(true)}

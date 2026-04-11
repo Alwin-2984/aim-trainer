@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { GameEngine } from '@/engine/GameEngine';
 import { RenderSystem } from '@/engine/systems/RenderSystem';
 import { ScoreSystem } from '@/engine/systems/ScoreSystem';
-import { EngineState, GamePhase, ModeDefinition } from '@/engine/types';
+import { EngineState, GamePhase, GameSystem, ModeDefinition } from '@/engine/types';
 
 const INITIAL_STATE: EngineState = {
   phase: GamePhase.MENU,
@@ -77,6 +77,7 @@ export function useGameEngine() {
         return false;
       }
     },
+    addSystem: (system: GameSystem) => engineRef.current?.addSystem(system),
     getActiveMode: (): ModeDefinition | null => {
       return engineRef.current?.activeMode ?? null;
     },

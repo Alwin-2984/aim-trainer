@@ -131,6 +131,33 @@ export interface HudConfig {
   scoreLabel: string;
 }
 
+// ─── Replay ───
+export interface ReplayTargetSnapshot {
+  x: number;
+  y: number;
+  radius: number;
+  isHit: boolean;
+  isTracking: boolean;
+  healthPercent: number;
+}
+
+export interface ReplayFrame {
+  time: number;
+  crosshairX: number;
+  crosshairY: number;
+  isFiring: boolean;
+  score: number;
+  timeLeft: number;
+  targets: ReplayTargetSnapshot[];
+}
+
+export interface ReplayRecording {
+  duration: number;
+  frameCount: number;
+  modeId: string;
+  frames: ReplayFrame[];
+}
+
 // ─── Mode Definition ───
 export interface ModeDefinition {
   id: string;

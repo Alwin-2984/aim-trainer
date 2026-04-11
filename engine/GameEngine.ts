@@ -165,6 +165,12 @@ export class GameEngine implements GameEngineInterface {
     this._input.requestLock();
   }
 
+  /** Add a system at runtime (e.g. RecordingSystem). Init'd immediately. */
+  addSystem(system: GameSystem): void {
+    this.systems.set(system.id, system);
+    system.init(this);
+  }
+
   pause(): void {
     this.stopLoop();
     this._input.releaseLock();

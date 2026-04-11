@@ -12,19 +12,26 @@ import GameUI from './GameUI';
 import Overlay from './Overlay';
 import SettingsModal from './SettingsModal';
 import DifficultySelector from './DifficultySelector';
+import ReplayViewer from './ReplayViewer';
+import { useReplayRecording } from '@/hooks/useReplayRecording';
+import { RecordingSystem } from '@/engine/systems/RecordingSystem';
+import { useSaveReplay } from '@/hooks/useSaveReplay';
 
 export default function TrackingTrainer() {
   const { state, actions } = useGameEngine();
   const { settings, sensitivity, settingsLoaded, setSensitivity, handleSettingChange } = useSettings();
   const { saveScore, resetSaved, fetchBest, personalBest, isNewBest } = useSaveScore();
+  const { saveReplay, resetReplaySave, saving: replaySaving, saved: replaySaved } = useSaveReplay();
 
   const [difficulty, setDifficulty] = useState<Difficulty>('medium');
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [flashOpacity, setFlashOpacity] = useState(0);
   const [aiFeedback, setAiFeedback] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
+  const [showReplay, setShowReplay] = useState(false);
 
   const shellRef = useRef<GameShellHandles>(null);
+  const { recordingRef, createRecording } = useReplayRecording();
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -46,9 +53,11 @@ export default function TrackingTrainer() {
   useEffect(() => {
     if (!settingsLoaded) return;
     actions.loadMode(TrackingModes[difficulty]);
+    const rec = createRecording('tracking');
+    actions.addSystem(new RecordingSystem(rec));
     fetchBest('tracking', difficulty);
     setAiFeedback('');
-  }, [difficulty, settingsLoaded, actions, fetchBest]);
+  }, [difficulty, settingsLoaded, actions, fetchBest, createRecording]);
 
   useEffect(() => {
     if (state.phase === GamePhase.GAME_OVER && state.score > 0) {
@@ -67,11 +76,15 @@ export default function TrackingTrainer() {
   const handleStart = useCallback(() => {
     if (state.phase === GamePhase.GAME_OVER) {
       actions.loadMode(TrackingModes[difficulty]);
+      const rec = createRecording('tracking');
+      actions.addSystem(new RecordingSystem(rec));
       setAiFeedback('');
       resetSaved();
+      resetReplaySave();
+      setShowReplay(false);
     }
     actions.start();
-  }, [state.phase, difficulty, actions, resetSaved]);
+  }, [state.phase, difficulty, actions, resetSaved, resetReplaySave, createRecording]);
 
   const handleReset = useCallback(() => {
     actions.loadMode(TrackingModes[difficulty]);
@@ -116,9 +129,18 @@ export default function TrackingTrainer() {
         onReset={handleReset}
         onAIAnalysis={handleAIAnalysis}
         onOpenSettings={() => setSettingsModalOpen(true)}
+        showReplayBtn={state.phase === GamePhase.GAME_OVER && (recordingRef.current?.frameCount ?? 0) > 0}
+        onWatchReplay={() => setShowReplay(true)}
+        onSaveReplay={() => recordingRef.current && saveReplay({ recording: recordingRef.current, mode: 'tracking', difficulty, score: state.score })}
+        replaySaving={replaySaving}
+        replaySaved={replaySaved}
       >
         <DifficultySelector selected={difficulty} onSelect={setDifficulty} />
       </Overlay>
+
+      {showReplay && recordingRef.current && (
+        <ReplayViewer recording={recordingRef.current} onClose={() => setShowReplay(false)} />
+      )}
 
       <SettingsModal
         isOpen={settingsModalOpen}
